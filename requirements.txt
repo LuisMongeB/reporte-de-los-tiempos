@@ -1,3 +1,13 @@
-openai
-fastapi
-pydantic
+openai==1.108.1
+fastapi==0.116.2
+pydantic==2.11.9
+pydantic_settings==2.10.1
+
+# Server
+uvicorn==0.36.0
+aiosqlite==0.21.0
+
+# Testing
+pytest==8.4.2
+pytest-cov==7.0.0
+pytest-asyncio==1.2.0
