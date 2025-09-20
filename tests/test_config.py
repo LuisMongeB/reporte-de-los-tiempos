@@ -22,18 +22,24 @@ class TestConfigurationLoading:
     
     def test_load_development_config(self):
         """Test loading development configuration"""
-        config = load_config("development")
-        assert isinstance(config, DevelopmentConfig)
-        assert config.debug is True
-        assert config.log_level == "DEBUG"
+        with patch.dict(os.environ, {
+            'TELEGRAM_BOT_TOKEN': '123456789:ABCdefGHIjklMNOpqrsTUVwxyz',
+            'OPENAI_API_KEY': 'sk-test123456789',
+            'TELEGRAM_WEBHOOK_SECRET': 'super_secret_webhook_token',
+            'TELEGRAM_WEBHOOK_URL': 'https://example.com/webhook'
+        }):
+            config = load_config("development")
+            assert isinstance(config, DevelopmentConfig)
+            assert config.debug is True
+            assert config.log_level == "DEBUG"
     
     def test_load_production_config_with_required_fields(self):
         """Test loading production config with all required fields"""
         with patch.dict(os.environ, {
-            'TELEGRAM_AGENT_TELEGRAM_BOT_TOKEN': '123456789:ABCdefGHIjklMNOpqrsTUVwxyz',
-            'TELEGRAM_AGENT_OPENAI_API_KEY': 'sk-test123456789',
-            'TELEGRAM_AGENT_TELEGRAM_WEBHOOK_SECRET': 'super_secret_webhook_token',
-            'TELEGRAM_AGENT_TELEGRAM_WEBHOOK_URL': 'https://example.com/webhook'
+            'TELEGRAM_BOT_TOKEN': '123456789:ABCdefGHIjklMNOpqrsTUVwxyz',
+            'OPENAI_API_KEY': 'sk-test123456789',
+            'TELEGRAM_WEBHOOK_SECRET': 'super_secret_webhook_token',
+            'TELEGRAM_WEBHOOK_URL': 'https://example.com/webhook'
         }):
             config = load_config("production")
             assert isinstance(config, ProductionConfig)
