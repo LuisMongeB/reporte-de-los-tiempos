@@ -11,8 +11,7 @@ class BaseConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False,
-        env_prefix="TELEGRAM_AGENT_",
+        case_sensitive=False
         extra="ignore"
     )
     
@@ -61,8 +60,6 @@ class BaseConfig(BaseSettings):
     def validate_telegram_token(cls, v: str) -> str:
         if not v or len(v) < 10:
             raise ValueError("Telegram bot token must be provided and valid")
-        if v.count(':') != 1:
-            raise ValueError("Telegram bot token format is invalid")
         return v
     
     @field_validator('openai_api_key')
@@ -106,8 +103,7 @@ class DevelopmentConfig(BaseConfig):
         env_file=".env.dev",
         env_file_encoding="utf-8", 
         case_sensitive=False,
-        env_prefix="TELEGRAM_AGENT_",
-        extra="ignore"
+        extra="allow"
     )
     
     debug: bool = True
@@ -135,8 +131,7 @@ class ProductionConfig(BaseConfig):
         env_file=".env.prod",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        env_prefix="TELEGRAM_AGENT_",
-        extra="ignore"
+        extra="allow"
     )
     
     debug: bool = False
