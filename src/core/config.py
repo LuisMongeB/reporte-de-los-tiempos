@@ -38,6 +38,18 @@ class BaseConfig(BaseSettings):
     telegram_webhook_url: Optional[str] = Field(
         default=None, description="Full webhook URL (will be set dynamically)"
     )
+    telegram_webhook_path: str = Field(
+        default="/webhook/telegram", description="Webhook endpoint path"
+    )
+    telegram_api_base_url: str = Field(
+        default="https://api.telegram.org", description="Telegram Bot API base URL"
+    )
+    telegram_connect_timeout: int = Field(
+        default=30, description="Connection timeout for Telegram API calls in seconds"
+    )
+    telegram_read_timeout: int = Field(
+        default=30, description="Read timeout for Telegram API calls in seconds"
+    )
 
     # OpenAI Settings
     openai_api_key: str = Field(..., description="OpenAI API key")
@@ -131,7 +143,7 @@ class ProductionConfig(BaseConfig):
         env_file=".env.prod",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="forbid",
+        extra="allow",
     )
 
     debug: bool = False
