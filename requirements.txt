@@ -14,3 +14,4 @@ pytest-asyncio==1.2.0
 
 # Database
 sqlalchemy==2.0.43
+python-telegram-bot==20.7
