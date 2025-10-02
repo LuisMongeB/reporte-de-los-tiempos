@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.api.health import router as health_router
+from src.api.telegram import router as telegram_router
 from src.api.models import ErrorResponse
 from src.core.config import get_config, validate_config_completeness
 from src.core.database import DatabaseManager, get_database_manager
@@ -145,10 +146,7 @@ def create_app() -> FastAPI:
 
     # Include routers
     app.include_router(health_router, prefix="/api/v1")
-
-    # Add more routers here as they are created
-    # app.include_router(telegram_router, prefix="/api/v1")
-    # app.include_router(webhook_router, prefix="/api/v1")
+    app.include_router(telegram_router)
 
     # Exception handlers
     @app.exception_handler(StarletteHTTPException)
