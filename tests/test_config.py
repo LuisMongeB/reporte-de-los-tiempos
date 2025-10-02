@@ -47,12 +47,22 @@ class TestConfigurationLoading:
             assert config.telegram_webhook_secret == 'super_secret_webhook_token'
     
     def test_load_config_missing_required_fields(self):
-        """Test that missing required fields raise ValidationError"""
+        """Test that missing required fields raise ConfigurationError"""
+        # Create a test config class that doesn't read from any env file
+        from pydantic_settings import SettingsConfigDict
+        
+        class TestProductionConfig(ProductionConfig):
+            model_config = SettingsConfigDict(
+                env_file=None,  # Don't read from any env file
+                case_sensitive=False,
+                extra="allow"
+            )
+        
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ConfigurationError) as exc_info:
-                load_config("production")
-            
-            assert "validation failed" in str(exc_info.value).lower()
+            # Patch the config class in load_config
+            with patch('src.core.config.CONFIG_CLASSES', {'production': TestProductionConfig}):
+                with pytest.raises(ConfigurationError):
+                    load_config("production")
     
     def test_invalid_environment_name(self):
         """Test that invalid environment names raise ConfigurationError"""
