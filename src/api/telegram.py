@@ -2,11 +2,10 @@
 Telegram webhook endpoint for receiving updates.
 """
 
-from fastapi import APIRouter, Request, HTTPException, status, Header
-from typing import Optional
 import logging
-import hmac
-import hashlib
+from typing import Optional
+
+from fastapi import APIRouter, Header, HTTPException, status
 
 from src.api.models import TelegramUpdate
 from src.core.config import get_config
@@ -17,15 +16,11 @@ settings = get_config()
 router = APIRouter(prefix="/webhook", tags=["telegram"])
 
 
-def validate_telegram_webhook(
-    body: bytes,
-    secret_token: Optional[str] = None
-) -> bool:
+def validate_telegram_webhook(secret_token: Optional[str] = None) -> bool:
     """
     Validate that the request came from Telegram using the secret token.
 
     Args:
-        body: Raw request body as bytes
         secret_token: Secret token from X-Telegram-Bot-Api-Secret-Token header
 
     Returns:
@@ -47,8 +42,7 @@ def validate_telegram_webhook(
 @router.post("/telegram")
 async def telegram_webhook(
     update: TelegramUpdate,
-    request: Request,
-    x_telegram_bot_api_secret_token: Optional[str] = Header(None)
+    x_telegram_bot_api_secret_token: Optional[str] = Header(None),
 ):
     """
     Receive incoming updates from Telegram.
@@ -58,7 +52,6 @@ async def telegram_webhook(
 
     Args:
         update: The Telegram update object
-        request: FastAPI request object (for raw body access)
         x_telegram_bot_api_secret_token: Secret token header from Telegram
 
     Returns:
@@ -67,12 +60,10 @@ async def telegram_webhook(
     logger.info(f"Received Telegram update: {update.update_id}")
 
     # Validate the request came from Telegram
-    body = await request.body()
-    if not validate_telegram_webhook(body, x_telegram_bot_api_secret_token):
+    if not validate_telegram_webhook(x_telegram_bot_api_secret_token):
         logger.error("Webhook validation failed")
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid webhook secret"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook secret"
         )
 
     # For now, just log the message and return OK
@@ -80,7 +71,8 @@ async def telegram_webhook(
     if update.message and update.message.text:
         logger.info(
             f"Message from user {update.message.from_user.id}: "
-            f"{update.message.text[:50]}..."
+            f"Message: {update.message.text[:50]}"
+            f"\nFrom: {update.message.from_user}"
         )
 
     # CRITICAL: Return 200 OK immediately
