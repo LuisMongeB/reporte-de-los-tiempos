@@ -16,14 +16,18 @@ T = TypeVar('T')
 # Export all models
 __all__ = [
     'ResponseStatus',
-    'BaseResponse', 
+    'BaseResponse',
     'ErrorResponse',
     'SuccessResponse',
     'HealthStatus',
     'HealthResponse',
     'DatabaseStatus',
     'ConfigSummary',
-    'DetailedHealthResponse'
+    'DetailedHealthResponse',
+    'TelegramUser',
+    'TelegramChat',
+    'TelegramMessage',
+    'TelegramUpdate'
 ]
 
 
@@ -206,5 +210,59 @@ class DetailedHealthResponse(BaseResponse):
                 data['status'] = ResponseStatus.PENDING
             else:  # UNHEALTHY
                 data['status'] = ResponseStatus.ERROR
-        
+
         super().__init__(**data)
+
+
+# Telegram Webhook Models
+
+class TelegramUser(BaseModel):
+    """Represents a Telegram user"""
+    id: int = Field(..., description="Unique identifier for this user")
+    is_bot: bool = Field(False, description="True if this user is a bot")
+    first_name: str = Field(..., description="User's first name")
+    last_name: Optional[str] = Field(None, description="User's last name")
+    username: Optional[str] = Field(None, description="User's username")
+    language_code: Optional[str] = Field(None, description="IETF language tag")
+
+
+class TelegramChat(BaseModel):
+    """Represents a Telegram chat"""
+    id: int = Field(..., description="Unique identifier for this chat")
+    type: str = Field(..., description="Type of chat: private, group, supergroup, channel")
+    title: Optional[str] = Field(None, description="Title for supergroups, channels, group chats")
+    username: Optional[str] = Field(None, description="Username for private chats, supergroups, channels")
+    first_name: Optional[str] = Field(None, description="First name of the other party in private chat")
+    last_name: Optional[str] = Field(None, description="Last name of the other party in private chat")
+
+
+class TelegramMessage(BaseModel):
+    """Represents a Telegram message"""
+    message_id: int = Field(..., description="Unique message identifier")
+    from_user: Optional[TelegramUser] = Field(None, alias="from", description="Sender of the message")
+    chat: TelegramChat = Field(..., description="Conversation the message belongs to")
+    date: int = Field(..., description="Date the message was sent in Unix time")
+
+    # Text content
+    text: Optional[str] = Field(None, description="For text messages, the actual UTF-8 text of the message")
+
+    # Media content (Phase 2+ - not processed in MVP)
+    photo: Optional[list] = Field(None, description="Available sizes of the photo")
+    document: Optional[dict] = Field(None, description="Information about the document file")
+    audio: Optional[dict] = Field(None, description="Information about the audio file")
+    voice: Optional[dict] = Field(None, description="Information about the voice message")
+    video: Optional[dict] = Field(None, description="Information about the video file")
+
+    # Caption for media
+    caption: Optional[str] = Field(None, description="Caption for the media, 0-1024 characters")
+
+    class Config:
+        populate_by_name = True  # Allows both 'from' and 'from_user' as field names
+
+
+class TelegramUpdate(BaseModel):
+    """Represents an incoming Telegram update"""
+    update_id: int = Field(..., description="Unique identifier for this update")
+    message: Optional[TelegramMessage] = Field(None, description="New incoming message")
+
+    # Future: edited_message, channel_post, etc. can be added here
