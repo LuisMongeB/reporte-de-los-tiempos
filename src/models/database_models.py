@@ -38,9 +38,11 @@ class Message(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
-    telegram_message_id = Column(String(255), nullable=False)
+    telegram_message_id = Column(String(255), nullable=True)  # Telegram's message ID (null for agent messages)
     content = Column(Text, nullable=True)
-    type = Column(String(50), nullable=False)  # "text", "audio", "voice", "system"
+    sender = Column(String(50), nullable=False)  # "user" or "agent"
+    message_type = Column(String(50), nullable=False)  # "text", "audio", "voice", "system"
+    metadata = Column(JSON, nullable=True)  # Additional message metadata
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     
     # User information (basic Telegram metadata)
