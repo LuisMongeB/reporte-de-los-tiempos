@@ -144,6 +144,19 @@ class DatabaseManager:
             else:
                 logger.info(f"Database file exists: {db_path}")
     
+    async def create_tables(self) -> None:
+        """Create all database tables from models"""
+        if not self._initialized:
+            raise DatabaseConnectionError("Database not initialized. Call initialize() first.")
+        
+        try:
+            async with self.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create tables: {e}")
+            raise DatabaseConnectionError(f"Table creation failed: {e}")
+    
     async def get_raw_connection(self) -> aiosqlite.Connection:
         """
         Get a raw aiosqlite connection for direct SQL operations.
