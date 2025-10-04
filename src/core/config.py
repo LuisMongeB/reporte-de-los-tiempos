@@ -52,10 +52,15 @@ class BaseConfig(BaseSettings):
     )
 
     # OpenAI Settings
-    openai_api_key: str = Field(..., description="OpenAI API key")
-    openai_model: str = Field(default="gpt-4", description="OpenAI model to use")
-    openai_max_tokens: int = Field(default=1000, description="Max tokens per response")
-    openai_temperature: float = Field(default=0.7, description="Response creativity")
+    openai_api_key: Optional[str] = Field(default=None)
+    llm_model: str = Field("gpt-5-nano")
+    llm_temperature: float = Field(default=0.7)
+    llm_max_tokens: int = Field(default=1000)
+
+    # Agent Settings
+    conversation_history_limit: int = Field(
+        default=10, description="Number of recent messages to include in agent context"
+    )
 
     # File Storage
     temp_dir: Path = Field(default=Path("./temp"), description="Temporary file storage")
@@ -85,7 +90,7 @@ class BaseConfig(BaseSettings):
         v.mkdir(parents=True, exist_ok=True)
         return v
 
-    @field_validator("openai_temperature")
+    @field_validator("llm_temperature")
     @classmethod
     def validate_temperature(cls, v: float) -> float:
         if not 0 <= v <= 2:
@@ -133,7 +138,7 @@ class DevelopmentConfig(BaseConfig):
     )
 
     # More permissive settings for development
-    openai_max_tokens: int = 500
+    llm_max_tokens: int = 500
 
 
 class ProductionConfig(BaseConfig):
