@@ -102,47 +102,37 @@ class TelegramService:
                 success=False, message=None, error=error_type, error_details=str(e)
             )
 
-    async def send_chat_action(
-        self,
-        chat_id: int,
-        action: str = "typing"
-    ) -> bool:
+    async def send_typing_action(self, chat_id: int) -> bool:
         """
-        Send a chat action (typing indicator, uploading, etc.).
+        Send typing indicator to show the bot is processing.
         
-        This shows a visual indicator to the user that the bot is doing something.
+        This shows "Bot is typing..." to the user.
         The indicator automatically disappears after 5 seconds or when a message is sent.
         
         Args:
             chat_id: The Telegram chat ID
-            action: Action type. Common values:
-                - "typing" - Shows typing indicator (default)
-                - "upload_photo" - Shows uploading photo indicator
-                - "record_voice" - Shows recording voice indicator
-                - "upload_voice" - Shows uploading voice indicator
-                - "upload_document" - Shows uploading document indicator
                 
         Returns:
             bool: True if sent successfully, False otherwise
             
         Example:
-            await service.send_chat_action(12345, "typing")
+            await service.send_typing_action(12345)
             # User sees "Bot is typing..."
         """
         try:
-            await self.bot.send_chat_action(chat_id=chat_id, action=action)
-            logger.debug(f"Chat action '{action}' sent to chat {chat_id}")
+            await self.bot.send_chat_action(chat_id=chat_id, action="typing")
+            logger.debug(f"Typing indicator sent to chat {chat_id}")
             return True
             
         except TelegramError as e:
-            # Don't raise errors for chat actions - they're not critical
+            # Don't raise errors for typing indicator - it's not critical
             logger.warning(
-                f"Failed to send chat action '{action}' to {chat_id}: {e}"
+                f"Failed to send typing indicator to {chat_id}: {e}"
             )
             return False
             
         except Exception as e:
             logger.warning(
-                f"Unexpected error sending chat action to {chat_id}: {e}"
+                f"Unexpected error sending typing indicator to {chat_id}: {e}"
             )
             return False
