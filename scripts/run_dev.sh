@@ -25,4 +25,5 @@ echo "📡 Starting FastAPI server on http://localhost:8000"
 echo "📚 API docs available at http://localhost:8000/docs"
 echo ""
 
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000 --log-level info
+# Use uv to run uvicorn (for projects using uv package manager)
+uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000 --log-level info
