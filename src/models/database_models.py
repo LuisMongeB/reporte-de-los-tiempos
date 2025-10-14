@@ -42,7 +42,7 @@ class Message(Base):
     content = Column(Text, nullable=True)
     sender = Column(String(50), nullable=False)  # "user" or "agent"
     message_type = Column(String(50), nullable=False)  # "text", "audio", "voice", "system"
-    metadata = Column(JSON, nullable=True)  # Additional message metadata
+    message_metadata = Column(JSON, nullable=True)  # Additional message metadata (renamed from 'metadata' to avoid SQLAlchemy conflict)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     
     # User information (basic Telegram metadata)

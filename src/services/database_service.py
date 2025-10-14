@@ -132,7 +132,7 @@ class DatabaseService:
                     sender=sender,
                     message_type=message_type,
                     telegram_message_id=telegram_message_id,
-                    metadata=metadata or {},
+                    message_metadata=metadata or {},
                 )
                 session.add(message)
                 await session.commit()
@@ -173,7 +173,7 @@ class DatabaseService:
                 result = await session.execute(
                     select(Message)
                     .where(Message.conversation_id == conversation_id)
-                    .order_by(desc(Message.timestamp))
+                    .order_by(desc(Message.timestamp), desc(Message.id))
                     .limit(limit)
                 )
                 messages = result.scalars().all()
