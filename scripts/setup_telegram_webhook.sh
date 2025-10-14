@@ -8,18 +8,10 @@ set -a
 source .env.dev
 set +a
 
-# Check if URL is provided
-if [ -z "$1" ]; then
-    echo "❌ Error: Webhook URL not provided"
-    echo "Usage: ./scripts/setup_telegram_webhook.sh <WEBHOOK_URL>"
-    echo "Example: ./scripts/setup_telegram_webhook.sh https://abc123.ngrok-free.app"
-    exit 1
-fi
-
-WEBHOOK_URL="$1/webhook/telegram"
+WEBHOOK_URL="${TELEGRAM_WEBHOOK_URL}/telegram"
 
 echo "🔧 Setting up Telegram webhook..."
-echo "📡 URL: $WEBHOOK_URL"
+echo "📡 URL: $WEBHOOK_URL/telegram"
 echo "🔐 Secret: ${TELEGRAM_WEBHOOK_SECRET:0:10}..." # Show first 10 chars only
 
 # Set webhook with secret
