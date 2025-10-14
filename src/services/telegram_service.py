@@ -37,7 +37,7 @@ class TelegramService:
         self,
         chat_id: int,
         text: str,
-        parse_mode: Optional[str] = ParseMode.MARKDOWN_V2,
+        parse_mode: Optional[str] = ParseMode.MARKDOWN,
     ) -> TelegramSendResult:
         """
         Send a text message to a Telegram chat.
@@ -45,7 +45,7 @@ class TelegramService:
         Args:
             chat_id: The Telegram chat ID to send to
             text: The message text to send
-            parse_mode: Parse mode for formatting (default: MarkdownV2)
+            parse_mode: Parse mode for formatting (default: Markdown - simple formatting)
 
         Returns:
             TelegramSendResult: Result object containing:
