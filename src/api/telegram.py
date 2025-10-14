@@ -5,12 +5,11 @@ Telegram webhook endpoint for receiving updates.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
 
 from src.agents.supervisor_agent import SupervisorAgent
 from src.api.models import TelegramUpdate
 from src.core.config import get_config
-from src.core.database import DatabaseManager
 from src.services.database_service import DatabaseService
 from src.services.message_processor import MessageProcessor
 from src.services.telegram_service import TelegramService
@@ -26,31 +25,33 @@ router = APIRouter(prefix="/webhook", tags=["telegram"])
 # These are initialized once when the first webhook arrives, then reused.
 # This is efficient for Raspberry Pi - avoids recreating services per request.
 
-_db_manager: Optional[DatabaseManager] = None
 _db_service: Optional[DatabaseService] = None
 _telegram_service: Optional[TelegramService] = None
 _agent: Optional[SupervisorAgent] = None
 _message_processor: Optional[MessageProcessor] = None
 
 
-def get_message_processor() -> MessageProcessor:
+def get_message_processor(request: Request) -> MessageProcessor:
     """
-    Get or create the message processor instance (lazy initialization).
+    Get or create the message processor instance.
 
-    This ensures services are only created when the first message arrives,
-    not at app startup.
+    Uses the database manager initialized at app startup to avoid
+    "Database not initialized" errors.
+
+    Args:
+        request: FastAPI request object to access app.state
 
     Returns:
         MessageProcessor: Initialized message processor
     """
-    global _db_manager, _db_service, _telegram_service, _agent, _message_processor
+    global _db_service, _telegram_service, _agent, _message_processor
 
     if _message_processor is None:
         logger.info("Initializing message processing services...")
 
-        # Initialize database service
-        _db_manager = DatabaseManager(settings.database_url)
-        _db_service = DatabaseService(_db_manager)
+        # Use the database manager from app state (already initialized in lifespan)
+        db_manager = request.app.state.db_manager
+        _db_service = DatabaseService(db_manager)
 
         # Initialize Telegram service
         _telegram_service = TelegramService()
@@ -66,16 +67,19 @@ def get_message_processor() -> MessageProcessor:
     return _message_processor
 
 
-def get_telegram_service() -> TelegramService:
+def get_telegram_service(request: Request) -> TelegramService:
     """
     Get the Telegram service instance.
 
     Ensures initialization by calling get_message_processor first.
 
+    Args:
+        request: FastAPI request object
+
     Returns:
         TelegramService: Initialized telegram service
     """
-    get_message_processor()  # Ensures all services are initialized
+    get_message_processor(request)  # Ensures all services are initialized
     return _telegram_service
 
 
@@ -212,6 +216,7 @@ async def process_and_respond(
 async def telegram_webhook(
     update: TelegramUpdate,
     background_tasks: BackgroundTasks,
+    request: Request,
     x_telegram_bot_api_secret_token: Optional[str] = Header(None),
 ):
     """
@@ -247,8 +252,8 @@ async def telegram_webhook(
         )
 
     # Get services (lazy initialization on first call)
-    processor = get_message_processor()
-    telegram_service = get_telegram_service()
+    processor = get_message_processor(request)
+    telegram_service = get_telegram_service(request)
 
     # Schedule background processing
     if update.message and update.message.text:
