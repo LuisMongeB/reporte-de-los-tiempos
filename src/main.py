@@ -52,9 +52,10 @@ async def lifespan(app: FastAPI):
         # Initialize database
         db_manager = await get_database_manager()
         await db_manager.initialize()
+        await db_manager.create_tables()
         app.state.db_manager = db_manager
 
-        logger.info("Database initialized successfully")
+        logger.info("Database initialized and tables created successfully")
 
         # Log startup summary
         logger.info(
