@@ -10,6 +10,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
 from src.core.config import get_config
+from src.agents.BaseAgent import BaseAgent
 
 logger = logging.getLogger(__name__)
 settings = get_config()
@@ -27,17 +28,27 @@ class AgentState(TypedDict):
     current_response: str  # The agent's response
 
 
-class SupervisorAgent:
+class SupervisorAgent(BaseAgent):
     """
     Supervisor agent that processes user messages and generates responses.
 
     For MVP, this agent handles all messages directly. In future phases,
     it will route to specialized agents based on message content.
+
+    Extends BaseAgent to use YAML-based prompts and consistent interface.
     """
 
-    def __init__(self):
-        """Initialize the supervisor agent with LLM and graph"""
+    def __init__(self, prompt_file: str = "supervisor/supervisor_agent.yaml"):
+        """
+        Initialize the supervisor agent with LLM and graph.
+
+        Args:
+            prompt_file: Path to YAML prompt configuration (default: supervisor/supervisor_agent.yaml)
+        """
         logger.info("Initializing SupervisorAgent...")
+
+        # Initialize BaseAgent (loads prompt, validates, builds system prompt)
+        super().__init__(prompt_file)
 
         # Initialize LLM
         self.llm = self._initialize_llm()
@@ -46,6 +57,87 @@ class SupervisorAgent:
         self.graph = self._build_graph()
 
         logger.info("SupervisorAgent initialized successfully")
+
+    def _build_system_prompt(self) -> str:
+        """
+        Build the system prompt from the loaded YAML configuration.
+
+        Returns:
+            Complete system prompt string for the LLM
+        """
+        config = self.prompt_config["system_prompt"]
+
+        # Build comprehensive system prompt
+        parts = [
+            config["role"],
+            "",
+            "**Capabilities:**"
+        ]
+
+        # Add capabilities
+        for cap in config.get("capabilities", []):
+            parts.append(f"- {cap}")
+
+        parts.append("")
+        parts.append("**Constraints:**")
+
+        # Add constraints
+        for constraint in config.get("constraints", []):
+            parts.append(f"- {constraint}")
+
+        parts.append("")
+        parts.append(f"**Tone:** {config.get('tone', 'professional and helpful')}")
+        parts.append("")
+        parts.append("**Instructions:**")
+        parts.append(config.get("instructions", ""))
+
+        return "\n".join(parts)
+
+    def _register_tools(self) -> List[Any]:
+        """
+        Register tools available to the supervisor agent.
+
+        For MVP, the supervisor doesn't use external tools yet.
+        In Phase 2, this will include routing tools.
+
+        Returns:
+            List of tool objects (empty for MVP)
+        """
+        # No tools in MVP - supervisor uses LLM directly
+        # Phase 2 will add: route_to_agent, request_approval
+        return []
+
+    async def process_message(
+        self,
+        message: str,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Process an incoming message (BaseAgent interface).
+
+        This is the new interface required by BaseAgent. It wraps the
+        existing process() method for backward compatibility.
+
+        Args:
+            message: The user's message
+            context: Conversation context
+
+        Returns:
+            Dictionary with status, response, should_stream, etc.
+        """
+        # Extract conversation history and user context
+        conversation_history = context.get("conversation_history", [])
+        user_context = context.get("user_context", {})
+
+        # Use existing process() method
+        response = await self.process(message, conversation_history, user_context)
+
+        return {
+            "status": "complete",
+            "response": response,
+            "should_stream": True,  # Enable streaming for better UX
+            "metadata": {}
+        }
 
     def _initialize_llm(self):
         """
@@ -69,6 +161,10 @@ class SupervisorAgent:
         This is the main processing node. It takes the conversation history,
         adds a system prompt, and generates a response using the LLM.
 
+        Note: state["messages"] already contains the full conversation history
+        from the database (populated in process() method). We just prepend
+        the system prompt for context.
+
         Args:
             state: Current agent state with messages and context
 
@@ -81,18 +177,14 @@ class SupervisorAgent:
         context = state.get("conversation_context", {})
         user_name = context.get("user_name", "User")
 
-        # Build system prompt
-        system_prompt = SystemMessage(
-            content=f"""You are a helpful AI assistant in a Telegram bot.
-            You are conversing with {user_name}. Be friendly, helpful, and concise.
+        # Build system prompt from YAML configuration
+        # self.system_prompt comes from BaseAgent._build_system_prompt()
+        system_prompt_content = f"{self.system_prompt}\n\nYou are conversing with {user_name}."
 
-            For the MVP, you handle all types of queries. In the future, you will route
-            specialized tasks to other agents, but for now, do your best to help directly.
-            
-            Keep responses conversational and appropriate for a messaging platform."""
-        )
+        system_prompt = SystemMessage(content=system_prompt_content)
 
         # Combine system prompt with conversation history
+        # state["messages"] already contains full conversation history from DB
         messages = [system_prompt] + state["messages"]
 
         # Generate response using LLM
