@@ -1,0 +1,53 @@
+agent:
+  name: "Test Agent"
+  version: "1.0.0"
+  description: "A test agent for unit testing BaseAgent"
+
+system_prompt:
+  role: |
+    You are a test agent used for validating the BaseAgent implementation.
+
+  capabilities:
+    - "Test capability 1"
+    - "Test capability 2"
+
+  constraints:
+    - "Test constraint 1"
+    - "Test constraint 2"
+
+  tone: "helpful and testing-focused"
+
+  instructions: |
+    This is a test agent. You should:
+    1. Respond to test messages
+    2. Validate configurations
+    3. Test all features
+
+tools:
+  - name: "test_tool"
+    description: "A test tool"
+    requires_approval: true
+    parameters:
+      test_param: "Test parameter"
+
+  - name: "no_approval_tool"
+    description: "Tool that doesn't require approval"
+    requires_approval: false
+
+interaction_flow:
+  test_step:
+    message: "Test message"
+    action: "Test action"
+
+approval_messages:
+  test_tool: "Do you approve using the test tool with {param}?"
+
+error_messages:
+  test_error: "Test error occurred: {details}"
+
+routing:
+  fallback_to: "supervisor_agent"
+  handoff_rules:
+    - condition: "test_condition"
+      target_agent: "test_target"
+      message: "Routing to test target"
