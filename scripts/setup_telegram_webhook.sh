@@ -8,10 +8,10 @@ set -a
 source .env.dev
 set +a
 
-WEBHOOK_URL="${TELEGRAM_WEBHOOK_URL}/telegram"
+WEBHOOK_URL="${TELEGRAM_WEBHOOK_URL}${TELEGRAM_WEBHOOK_PATH}"
 
 echo "🔧 Setting up Telegram webhook..."
-echo "📡 URL: $WEBHOOK_URL/telegram"
+echo "📡 URL: $WEBHOOK_URL$TELEGRAM_WEBHOOK_PATH"
 echo "🔐 Secret: ${TELEGRAM_WEBHOOK_SECRET:0:10}..." # Show first 10 chars only
 
 # Set webhook with secret
