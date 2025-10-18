@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Agent Prompt Configuration Schema",
+  "type": "object",
+  "required": ["agent", "system_prompt", "tools"],
+  "properties": {
+    "agent": {
+      "type": "object",
+      "required": ["name", "version", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable agent name"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version (e.g., 1.0.0)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of agent purpose"
+        }
+      }
+    },
+    "system_prompt": {
+      "type": "object",
+      "required": ["role", "capabilities", "instructions"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "Agent's role description"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "List of agent capabilities"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Agent limitations or rules"
+        },
+        "tone": {
+          "type": "string",
+          "description": "Communication style"
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Step-by-step instructions for the agent"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "user_input": {"type": "string"},
+              "agent_response": {"type": "string"}
+            }
+          },
+          "description": "Example interactions"
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Tool function name"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the tool does"
+          },
+          "requires_approval": {
+            "type": "boolean",
+            "description": "Whether tool requires user approval"
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Tool parameters schema"
+          }
+        }
+      }
+    },
+    "interaction_flow": {
+      "type": "object",
+      "description": "Multi-step interaction patterns",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"},
+          "action": {"type": "string"},
+          "expected_response": {"type": "string"}
+        }
+      }
+    },
+    "approval_messages": {
+      "type": "object",
+      "description": "Templates for approval requests",
+      "additionalProperties": {"type": "string"}
+    },
+    "error_messages": {
+      "type": "object",
+      "description": "Error message templates",
+      "additionalProperties": {"type": "string"}
+    },
+    "routing": {
+      "type": "object",
+      "description": "Rules for routing to other agents",
+      "properties": {
+        "fallback_to": {"type": "string"},
+        "handoff_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "condition": {"type": "string"},
+              "target_agent": {"type": "string"},
+              "message": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}
