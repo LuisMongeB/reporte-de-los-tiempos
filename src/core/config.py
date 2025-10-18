@@ -62,6 +62,46 @@ class BaseConfig(BaseSettings):
         default=10, description="Number of recent messages to include in agent context"
     )
 
+    # Phase 2: Agent Configuration
+    enable_streaming: bool = Field(
+        default=True, description="Enable streaming responses"
+    )
+    streaming_update_interval: int = Field(
+        default=30, description="Characters between streaming updates"
+    )
+    max_pdf_pages: int = Field(
+        default=20, description="Max pages for Vision LLM processing"
+    )
+    pdf_vision_llm_model: str = Field(
+        default="gpt-4o", description="LLM model for PDF vision processing"
+    )
+
+    # Phase 2: Notion Configuration
+    notion_api_key: Optional[str] = Field(
+        default=None,
+        description="Notion API key from https://www.notion.so/my-integrations",
+    )
+    notion_default_parent_page_id: Optional[str] = Field(
+        default=None, description="Default page ID for writing content"
+    )
+
+    # Phase 2: Web Scraping Configuration
+    respect_robots_txt: bool = Field(
+        default=True, description="Respect robots.txt directives"
+    )
+    max_fetch_size_mb: int = Field(
+        default=10, description="Max size of web pages to fetch (MB)"
+    )
+    user_agent: str = Field(
+        default="TelegramBot/1.0 (AI Assistant)",
+        description="User agent for web requests",
+    )
+
+    # Phase 2: Approval System
+    approval_timeout_minutes: int = Field(
+        default=10, description="How long before approvals expire"
+    )
+
     # File Storage
     temp_dir: Path = Field(default=Path("./temp"), description="Temporary file storage")
     max_file_size_mb: int = Field(default=25, description="Maximum file size in MB")
@@ -103,6 +143,7 @@ class BaseConfig(BaseSettings):
             "telegram_bot_token",
             "openai_api_key",
             "telegram_webhook_secret",
+            "notion_api_key",
         }
 
         summary = {}
