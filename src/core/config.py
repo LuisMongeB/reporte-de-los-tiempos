@@ -85,16 +85,15 @@ class BaseConfig(BaseSettings):
         default=None, description="Default page ID for writing content"
     )
 
-    # Phase 2: Web Scraping Configuration
-    respect_robots_txt: bool = Field(
-        default=True, description="Respect robots.txt directives"
+    # Phase 2: Tavily Search Configuration
+    tavily_api_key: Optional[str] = Field(
+        default=None, description="Tavily API key from https://tavily.com"
     )
-    max_fetch_size_mb: int = Field(
-        default=10, description="Max size of web pages to fetch (MB)"
+    tavily_max_results: int = Field(
+        default=5, description="Maximum number of search results to return"
     )
-    user_agent: str = Field(
-        default="TelegramBot/1.0 (AI Assistant)",
-        description="User agent for web requests",
+    tavily_search_depth: Literal["basic", "advanced"] = Field(
+        default="basic", description="Search depth (basic or advanced)"
     )
 
     # Phase 2: Approval System
@@ -144,6 +143,7 @@ class BaseConfig(BaseSettings):
             "openai_api_key",
             "telegram_webhook_secret",
             "notion_api_key",
+            "tavily_api_key",
         }
 
         summary = {}
@@ -173,9 +173,6 @@ class DevelopmentConfig(BaseConfig):
     # Development-specific settings
     ngrok_auth_token: Optional[str] = Field(
         default=None, description="ngrok auth token for tunneling"
-    )
-    auto_setup_webhook: bool = Field(
-        default=True, description="Automatically set up webhook via ngrok"
     )
 
     # More permissive settings for development
