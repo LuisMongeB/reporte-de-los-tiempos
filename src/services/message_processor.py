@@ -8,6 +8,8 @@ to process incoming messages and generate responses.
 import logging
 from typing import Dict, List, Optional
 
+# Import agents module to trigger agent registration
+import src.agents  # This triggers auto-registration in __init__.py
 from src.agents.supervisor_agent import SupervisorAgent
 from src.models.database_models import Conversation
 from src.services.database_service import DatabaseService
