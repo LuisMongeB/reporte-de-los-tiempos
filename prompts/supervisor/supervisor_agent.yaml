@@ -123,8 +123,8 @@ routing:
       - "store in notion"
 
   agent_mapping:
-    url: "web_scraper_agent"
-    pdf: "pdf_processor_agent"
+    url: "url_extractor"
+    pdf: "pdf_processor"
     notion: "notion_agent"
     default: "general_qa"
 
