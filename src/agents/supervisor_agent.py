@@ -4,11 +4,15 @@ Supervisor agent for processing user messages and generating responses.
 
 import logging
 import re
-from typing import Annotated, Any, Dict, List, Optional, TypedDict
+from operator import add
+from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from pydantic import BaseModel, Field
 
 from src.core.config import get_config
 from src.agents.BaseAgent import BaseAgent
@@ -18,23 +22,70 @@ logger = logging.getLogger(__name__)
 settings = get_config()
 
 
+class RoutingDecision(BaseModel):
+    """
+    Structured output from LLM for intelligent routing decisions.
+
+    This model uses Pydantic to ensure type-safe, deterministic routing
+    decisions from the LLM. The LLM analyzes user messages and returns
+    this structured format instead of free text.
+
+    This is the 2025 production best practice for LLM-based agent routing.
+    """
+
+    intent: Literal["url", "pdf", "notion", "general"] = Field(
+        description=(
+            "The PRIMARY intent of the user's message:\n"
+            "- 'url': Extract/analyze content from a web URL\n"
+            "- 'pdf': Process or analyze a PDF document\n"
+            "- 'notion': Save/upload/store content to Notion\n"
+            "- 'general': General conversation or questions"
+        )
+    )
+
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="Confidence score (0.0-1.0) in the routing decision"
+    )
+
+    reasoning: str = Field(
+        description="Brief explanation of why this intent was chosen"
+    )
+
+    extracted_url: Optional[str] = Field(
+        default=None,
+        description="If a URL is detected in the message, extract it here (with or without http://)"
+    )
+
+    notion_action: Optional[str] = Field(
+        default=None,
+        description="If intent is 'notion', what action? (save, upload, create, etc.)"
+    )
+
+
 class AgentState(TypedDict):
     """
     State maintained throughout the agent's execution.
 
     LangGraph passes this state between nodes. Each node can read and modify it.
     This state supports multi-agent routing and orchestration.
+
+    Reducers:
+    - messages: Uses add_messages to append new messages to history (never overwrites)
+    - routed_data: Merges dicts (new values update existing keys)
+    - routing_history: Appends new routing events to history list
     """
 
     # Core conversation state
-    messages: List  # Full conversation history (includes specialized agent responses)
+    messages: Annotated[List[BaseMessage], add_messages]  # ✅ Reducer appends messages
     conversation_context: Dict[str, Any]  # Additional context (user info, etc.)
     current_response: str  # The agent's current response being built
 
     # Routing state (for multi-agent orchestration)
     current_agent: str  # Which agent is currently handling the message (default: "supervisor")
-    routed_data: Dict[str, Any]  # Data passed between agents (e.g., extracted content, URLs)
-    routing_history: List[Dict[str, str]]  # Track which agents were involved in processing
+    routed_data: Annotated[Dict[str, Any], lambda x, y: {**x, **y}]  # ✅ Reducer merges dicts
+    routing_history: Annotated[List[Dict[str, str]], add]  # ✅ Reducer appends to list
 
 
 class SupervisorAgent(BaseAgent):
@@ -163,15 +214,90 @@ class SupervisorAgent(BaseAgent):
             max_tokens=settings.llm_max_tokens,
         )
 
-    def _detect_message_type(self, message: str) -> str:
+    async def _detect_message_type(self, message: str) -> str:
         """
-        Detect the type of message to determine routing.
+        Use LLM intelligence to detect the message intent and determine routing.
 
-        Uses routing patterns from YAML configuration to identify:
-        - URLs (for URLExtractorAgent)
-        - PDFs (for PDFProcessorAgent)
-        - Notion keywords (for NotionAgent)
-        - General messages (handled by supervisor)
+        This method uses Pydantic structured outputs with the LLM to intelligently
+        analyze user messages and determine routing. This is the 2025 production
+        best practice for agent routing, replacing brittle keyword/regex patterns.
+
+        The LLM analyzes the message to identify:
+        - URL extraction/processing requests (for URLExtractorAgent)
+        - PDF processing requests (for PDFProcessorAgent)
+        - Notion saving/storage requests (for NotionAgent)
+        - General conversation (handled by supervisor)
+
+        Key advantages over pattern matching:
+        - Understands natural language variations ("upload", "save", "add", etc.)
+        - Context-aware (knows "upload URL to Notion" routes to NotionAgent)
+        - Can detect URLs without http:// prefix (www.example.com)
+        - Type-safe with Pydantic validation
+
+        Args:
+            message: The user's message
+
+        Returns:
+            Message type: "url", "pdf", "notion", or "general"
+        """
+        try:
+            # Create structured output LLM for routing decisions
+            router_llm = self.llm.with_structured_output(RoutingDecision)
+
+            # Build routing prompt
+            routing_prompt = f"""Analyze the following user message and determine its PRIMARY intent for routing to the appropriate agent.
+
+            **Available Agents:**
+            - **URL Agent**: Extracts and analyzes content from web URLs/links
+            - **PDF Agent**: Processes and analyzes PDF documents
+            - **Notion Agent**: Saves/uploads/stores content to Notion
+            - **Supervisor (General)**: Handles general conversation and questions
+
+            **Important Routing Rules:**
+            1. If the message mentions saving/uploading/storing something TO Notion → choose "notion"
+            2. If the message contains a URL but ALSO mentions Notion → choose "notion" (destination is primary)
+            3. If the message only contains a URL without storage intent → choose "url"
+            4. If the message mentions PDF processing → choose "pdf"
+            5. General questions or conversation → choose "general"
+
+            **User Message:**
+            "{message}"
+
+            Analyze this message carefully and return a structured routing decision."""
+
+            # Get structured routing decision from LLM
+            decision: RoutingDecision = await router_llm.ainvoke([
+                SystemMessage(content="You are an intelligent routing agent. Analyze user messages and determine the correct agent to handle them."),
+                HumanMessage(content=routing_prompt)
+            ])
+
+            # Log the decision
+            logger.info(
+                f"LLM Routing Decision: intent='{decision.intent}', "
+                f"confidence={decision.confidence:.2f}, "
+                f"reasoning='{decision.reasoning[:100]}...'"
+            )
+
+            # Log extracted metadata
+            if decision.extracted_url:
+                logger.debug(f"Extracted URL: {decision.extracted_url}")
+            if decision.notion_action:
+                logger.debug(f"Notion action: {decision.notion_action}")
+
+            return decision.intent
+
+        except Exception as e:
+            logger.error(f"Error in LLM-based routing: {e}", exc_info=True)
+            logger.warning("Falling back to pattern-based routing")
+            # Fallback to simple pattern matching
+            return self._detect_message_type_fallback(message)
+
+    def _detect_message_type_fallback(self, message: str) -> str:
+        """
+        Fallback pattern-based detection when LLM routing fails.
+
+        This is a safety net for when the LLM is unavailable or returns errors.
+        Uses simple regex/keyword matching as a last resort.
 
         Args:
             message: The user's message
@@ -182,26 +308,26 @@ class SupervisorAgent(BaseAgent):
         routing_config = self.prompt_config.get("routing", {})
         patterns = routing_config.get("detection_patterns", {})
 
-        # Check URL pattern
-        url_pattern = patterns.get("url_pattern", r"^https?://")
-        if re.match(url_pattern, message.strip()):
-            logger.info(f"Detected URL message: {message[:50]}...")
+        # Check URL pattern (search anywhere in message, not just at start)
+        url_pattern = patterns.get("url_pattern", r"https?://\S+")
+        if re.search(url_pattern, message):
+            logger.info(f"Fallback: Detected URL message: {message[:50]}...")
             return "url"
 
         # Check PDF pattern
         pdf_pattern = patterns.get("pdf_pattern", r".*\.pdf$")
         if re.match(pdf_pattern, message.strip(), re.IGNORECASE):
-            logger.info(f"Detected PDF message: {message[:50]}...")
+            logger.info(f"Fallback: Detected PDF message: {message[:50]}...")
             return "pdf"
 
         # Check Notion keywords
         notion_keywords = patterns.get("notion_keywords", [])
         message_lower = message.lower()
         if any(keyword.lower() in message_lower for keyword in notion_keywords):
-            logger.info(f"Detected Notion keyword in message: {message[:50]}...")
+            logger.info(f"Fallback: Detected Notion keyword in message: {message[:50]}...")
             return "notion"
 
-        logger.debug(f"Message classified as general: {message[:50]}...")
+        logger.debug(f"Fallback: Message classified as general: {message[:50]}...")
         return "general"
 
     def _determine_routing(self, message_type: str, message: str) -> Optional[str]:
@@ -247,90 +373,8 @@ class SupervisorAgent(BaseAgent):
 
         return None
 
-    async def _route_to_agent(
-        self,
-        agent_id: str,
-        message: str,
-        state: AgentState
-    ) -> Dict[str, Any]:
-        """
-        Route a message to a specialized agent.
 
-        This method handles the full routing workflow:
-        1. Check agent availability
-        2. Get agent instance from registry
-        3. Prepare context with routing data
-        4. Call agent's process_message()
-        5. Update routing history
-        6. Handle errors gracefully
-
-        Args:
-            agent_id: The ID of the agent to route to
-            message: The message to process
-            state: Current agent state (contains routing_history, routed_data, etc.)
-
-        Returns:
-            Agent response dict with:
-            - status: "complete", "awaiting_input", "routing", or "error"
-            - response: Agent's response message
-            - metadata: Optional metadata for routing
-            - conversation_state: State to persist for multi-step workflows
-        """
-        try:
-            registry = AgentRegistry.get_instance()
-
-            # Check if agent is available
-            if not registry.is_agent_available(agent_id):
-                logger.warning(f"Agent {agent_id} is not available")
-                agent_info = registry.get_agent_info(agent_id) if agent_id in registry._metadata else {}
-                agent_name = agent_info.get("name", agent_id)
-
-                return {
-                    "status": "error",
-                    "response": f"The {agent_name} service is currently unavailable. Please check your configuration.",
-                    "conversation_state": {}
-                }
-
-            # Get agent instance
-            agent = registry.get_agent(agent_id)
-
-            # Prepare context for specialized agent
-            # Provide both `metadata` and `routed_data` keys for compatibility
-            # with specialized agents (some expect `metadata`, others `routed_data`).
-            # Also forward any agent-specific conversation_state.
-            context = {
-                "conversation_context": state.get("conversation_context", {}),
-                "metadata": state.get("routed_data", {}),
-                "routed_data": state.get("routed_data", {}),
-                "conversation_state": state.get("conversation_state", {}),
-            }
-
-            # Call specialized agent
-            logger.info(f"Routing to agent: {agent_id}")
-            result = await agent.process_message(message, context)
-
-            # Update routing history
-            state["routing_history"].append({
-                "agent": agent_id,
-                "message": message[:100],  # Truncate for logging
-                "status": result.get("status", "unknown")
-            })
-
-            # Update current agent
-            state["current_agent"] = agent_id
-
-            logger.info(f"Agent {agent_id} responded with status: {result.get('status')}")
-            return result
-
-        except Exception as e:
-            logger.error(f"Error routing to {agent_id}: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "response": "I encountered an unexpected error while processing your request. Please try again.",
-                "conversation_state": {}
-            }
-
-    async def _detect_and_route(self, state: AgentState) -> AgentState:
+    async def _detect_and_route(self, state: AgentState) -> Dict[str, Any]:
         """
         LangGraph node: Detect message type and route to appropriate agent.
 
@@ -340,36 +384,43 @@ class SupervisorAgent(BaseAgent):
         3. Determines which agent should handle it
         4. Routes to specialized agent OR continues to supervisor processing
 
-        The node updates state["current_agent"] to indicate routing decision.
-
         Args:
             state: Current agent state
 
         Returns:
-            Updated state with routing decision
+            Dict with state updates (current_agent, and optionally error messages)
         """
+        logger.info("=== ENTERED _detect_and_route node ===")
+        logger.debug(f"State keys: {state.keys()}")
+        logger.debug(f"Number of messages: {len(state.get('messages', []))}")
+
         # Extract latest message (last message in the list)
         if not state["messages"]:
             logger.warning("No messages in state for routing detection")
-            state["current_agent"] = "supervisor"
-            return state
+            return {"current_agent": "supervisor"}
 
         latest_message = state["messages"][-1]
         message_content = latest_message.content if hasattr(latest_message, 'content') else str(latest_message)
 
-        # Detect message type
-        message_type = self._detect_message_type(message_content)
+        logger.info(f"Latest message type: {type(latest_message)}")
+        logger.info(f"Message content to route: '{message_content[:100]}'")
+
+        # Detect message type using LLM intelligence
+        logger.info("About to call _detect_message_type...")
+        message_type = await self._detect_message_type(message_content)
+        logger.info(f"Detected message type: {message_type}")
 
         # Determine routing
         agent_id = self._determine_routing(message_type, message_content)
 
         if agent_id:
             # Mark for routing to specialized agent
-            state["current_agent"] = agent_id
             logger.info(f"Routing decision: {agent_id}")
+            return {"current_agent": agent_id}
         else:
             # Handle in supervisor
-            state["current_agent"] = "supervisor"
+            logger.info("Routing decision: supervisor (self-handle)")
+
             if message_type != "general":
                 # Service unavailable message
                 service_name = {
@@ -379,14 +430,15 @@ class SupervisorAgent(BaseAgent):
                 }.get(message_type, "the requested service")
 
                 error_msg = f"I detected that you want to use {service_name}, but this service is currently unavailable. Please check your configuration or contact support."
-                state["current_response"] = error_msg
-                state["messages"].append(AIMessage(content=error_msg))
+                return {
+                    "current_agent": "supervisor",
+                    "current_response": error_msg,
+                    "messages": [AIMessage(content=error_msg)]
+                }
 
-            logger.info("Routing decision: supervisor (self-handle)")
+            return {"current_agent": "supervisor"}
 
-        return state
-
-    async def _process_message(self, state: AgentState) -> AgentState:
+    async def _process_message(self, state: AgentState) -> Dict[str, Any]:
         """
         Process the user's message and generate a response.
 
@@ -401,9 +453,11 @@ class SupervisorAgent(BaseAgent):
             state: Current agent state with messages and context
 
         Returns:
-            AgentState: Updated state with agent's response
+            Dict with state updates (current_response, messages)
         """
-        logger.info("Processing message in supervisor agent...")
+        logger.info("=== ENTERED _process_message node ===")
+        logger.debug(f"State keys: {state.keys()}")
+        logger.debug(f"Number of messages: {len(state.get('messages', []))}")
 
         # Extract conversation context
         context = state.get("conversation_context", {})
@@ -421,124 +475,137 @@ class SupervisorAgent(BaseAgent):
 
         # Generate response using LLM
         try:
-            response = self.llm.invoke(messages)
+            response = await self.llm.ainvoke(messages)  # Use ainvoke for async
             response_text = response.content
 
             logger.info(f"Generated response: {response_text[:100]}...")
 
-            # Update state with response
-            state["current_response"] = response_text
-            state["messages"].append(AIMessage(content=response_text))
+            return {
+                "current_response": response_text,
+                "messages": [AIMessage(content=response_text)]
+            }
 
         except Exception as e:
             logger.error(f"Error generating response: {e}", exc_info=True)
             error_message = "I apologize, but I encountered an error processing your message. Please try again."
-            state["current_response"] = error_message
-            state["messages"].append(AIMessage(content=error_message))
 
-        return state
+            return {
+                "current_response": error_message,
+                "messages": [AIMessage(content=error_message)]
+            }
 
-    async def _handle_routed_message(self, state: AgentState) -> AgentState:
+
+    def _route_to_node(self, state: AgentState) -> str:
         """
-        LangGraph node: Handle message routing to specialized agents.
-
-        This node executes when state["current_agent"] != "supervisor".
-        It routes the message to the specified agent and handles the response.
-
-        Supports multi-step routing (e.g., URLExtractor → NotionAgent).
-
-        Args:
-            state: Current agent state
+        Conditional edge function: Route to specific node based on current_agent.
 
         Returns:
-            Updated state with agent's response
+            Node name: "url_extractor", "pdf_processor", "notion_agent", or "process"
         """
-        agent_id = state["current_agent"]
-        logger.info(f"Handling routed message for agent: {agent_id}")
+        current_agent = state.get("current_agent", "supervisor")
 
-        # Extract the latest user message
-        latest_message = state["messages"][-1]
-        message_content = latest_message.content if hasattr(latest_message, 'content') else str(latest_message)
-
-        # Route to the specialized agent
-        result = await self._route_to_agent(agent_id, message_content, state)
-
-        # Handle multi-step routing
-        if result.get("status") == "routing":
-            next_agent = result.get("next_agent")
-            if next_agent:
-                logger.info(f"Agent {agent_id} requesting handoff to {next_agent}")
-                # Update routed_data with metadata from first agent
-                state["routed_data"] = result.get("metadata", {})
-                # Route to next agent
-                result = await self._route_to_agent(next_agent, message_content, state)
-
-        # Update state with agent's response
-        response_text = result.get("response", "")
-        state["current_response"] = response_text
-
-        # Add agent response to conversation history
-        if response_text:
-            state["messages"].append(AIMessage(content=response_text))
-
-        return state
-
-    def _should_route(self, state: AgentState) -> str:
-        """
-        Conditional edge function: Determine if message should be routed.
-
-        Returns:
-            "route" if should route to specialized agent
-            "process" if should handle in supervisor
-        """
-        if state["current_agent"] != "supervisor":
-            return "route"
-        return "process"
+        if current_agent == "url_extractor":
+            logger.info("Routing to url_extractor subgraph")
+            return "url_extractor"
+        elif current_agent == "pdf_processor":
+            logger.info("Routing to pdf_processor subgraph")
+            return "pdf_processor"
+        elif current_agent == "notion_agent":
+            logger.info("Routing to notion_agent subgraph")
+            return "notion_agent"
+        else:
+            logger.info("Processing in supervisor")
+            return "process"
 
     def _build_graph(self) -> StateGraph:
         """
-        Build the LangGraph state graph with routing support.
+        Build the LangGraph state graph with subgraph integration and checkpointing.
 
         Graph structure:
-        START → detect_and_route → [route OR process] → END
+        START → detect_and_route → [url_extractor OR pdf_processor OR notion_agent OR process] → END
 
         Where:
         - detect_and_route: Detects message type and determines routing
-        - route: Handles routing to specialized agents
+        - url_extractor: URLExtractorAgent subgraph
+        - pdf_processor: PDFProcessorAgent subgraph
+        - notion_agent: NotionAgent subgraph
         - process: Handles message in supervisor (fallback)
 
         Returns:
-            StateGraph: Compiled LangGraph graph
+            StateGraph: Compiled LangGraph graph with integrated subgraphs and checkpointing
         """
         # Create graph with AgentState
         workflow = StateGraph(AgentState)
 
-        # Add nodes
+        # Add supervisor nodes
         workflow.add_node("detect_and_route", self._detect_and_route)
-        workflow.add_node("route", self._handle_routed_message)
         workflow.add_node("process", self._process_message)
+
+        # Get agent registry and add subgraph nodes
+        registry = AgentRegistry.get_instance()
+
+        # Add URL Extractor subgraph
+        if registry.is_agent_available("url_extractor"):
+            url_agent = registry.get_agent("url_extractor")
+            if hasattr(url_agent, 'subgraph'):
+                workflow.add_node("url_extractor", url_agent.subgraph)
+                logger.info("Added URLExtractorAgent subgraph to supervisor")
+            else:
+                logger.warning("URLExtractorAgent does not have subgraph attribute")
+
+        # Add PDF Processor subgraph
+        if registry.is_agent_available("pdf_processor"):
+            pdf_agent = registry.get_agent("pdf_processor")
+            if hasattr(pdf_agent, 'subgraph'):
+                workflow.add_node("pdf_processor", pdf_agent.subgraph)
+                logger.info("Added PDFProcessorAgent subgraph to supervisor")
+            else:
+                logger.warning("PDFProcessorAgent does not have subgraph attribute")
+
+        # Add Notion Agent subgraph
+        if registry.is_agent_available("notion_agent"):
+            notion_agent = registry.get_agent("notion_agent")
+            if hasattr(notion_agent, 'subgraph'):
+                workflow.add_node("notion_agent", notion_agent.subgraph)
+                logger.info("Added NotionAgent subgraph to supervisor")
+            else:
+                logger.warning("NotionAgent does not have subgraph attribute")
 
         # Set entry point
         workflow.set_entry_point("detect_and_route")
 
-        # Add conditional routing from detect_and_route
+        # Build conditional routing map dynamically based on available agents
+        routing_map = {"process": "process"}  # Always have process as fallback
+
+        if registry.is_agent_available("url_extractor") and hasattr(registry.get_agent("url_extractor"), 'subgraph'):
+            routing_map["url_extractor"] = "url_extractor"
+            workflow.add_edge("url_extractor", END)
+
+        if registry.is_agent_available("pdf_processor") and hasattr(registry.get_agent("pdf_processor"), 'subgraph'):
+            routing_map["pdf_processor"] = "pdf_processor"
+            workflow.add_edge("pdf_processor", END)
+
+        if registry.is_agent_available("notion_agent") and hasattr(registry.get_agent("notion_agent"), 'subgraph'):
+            routing_map["notion_agent"] = "notion_agent"
+            workflow.add_edge("notion_agent", END)
+
+        # Add conditional routing with only available agents
         workflow.add_conditional_edges(
             "detect_and_route",
-            self._should_route,
-            {
-                "route": "route",
-                "process": "process"
-            }
+            self._route_to_node,
+            routing_map
         )
 
-        # Both route and process lead to END
-        workflow.add_edge("route", END)
+        # Process always leads to END
         workflow.add_edge("process", END)
 
-        # Compile graph
-        graph = workflow.compile()
+        # Initialize in-memory checkpointer
+        self.checkpointer = MemorySaver()
 
-        logger.info("Agent graph with routing compiled successfully")
+        # Compile graph with checkpointer
+        graph = workflow.compile(checkpointer=self.checkpointer)
+
+        logger.info("Supervisor graph with integrated subgraphs and checkpointing compiled successfully")
         return graph
 
     async def process(
@@ -551,17 +618,24 @@ class SupervisorAgent(BaseAgent):
         Process a user message and generate a response.
 
         This is the main entry point for the agent. It converts the message
-        and history into LangChain format, runs the graph, and returns the response.
+        and history into LangChain format, runs the graph with checkpointing,
+        and returns the response.
 
         Args:
             message: The user's message text
             conversation_history: Previous messages [{"role": "user/agent", "content": "..."}]
             user_context: Additional context about the user (name, preferences, etc.)
+                         Should include 'conversation_id' for checkpointing
 
         Returns:
             str: The agent's response
         """
-        logger.info(f"Processing message: {message[:100]}...")
+        logger.info("="*80)
+        logger.info(f"=== SUPERVISOR AGENT PROCESS STARTED ===")
+        logger.info(f"Message: {message[:100]}...")
+        logger.info(f"User context: {user_context}")
+        logger.info(f"History length: {len(conversation_history) if conversation_history else 0}")
+        logger.info("="*80)
 
         # Convert conversation history to LangChain messages
         messages = []
@@ -585,14 +659,36 @@ class SupervisorAgent(BaseAgent):
             "routed_data": {},
             "routing_history": [],
         }
+        
+        # Use conversation_id from user_context for checkpointing
+        conversation_id = user_context.get("conversation_id", "default") if user_context else "default"
 
-        # Run the graph
+        # Configure with thread_id for checkpointing
+        config = {
+            "configurable": {
+                "thread_id": conversation_id
+            }
+        }
+
+        # Run the graph with checkpointing
         try:
-            # Use ainvoke for async graph execution (supports async nodes)
-            final_state = await self.graph.ainvoke(initial_state)
+            logger.info("=== ABOUT TO INVOKE GRAPH ===")
+            logger.info(f"Initial state: {initial_state.keys()}")
+            logger.info(f"Config: {config}")
+
+            # Use ainvoke for async graph execution with config
+            final_state = await self.graph.ainvoke(initial_state, config=config)
+
+            logger.info("=== GRAPH EXECUTION COMPLETE ===")
+            logger.info(f"Final state keys: {final_state.keys()}")
+            logger.info(f"Current agent: {final_state.get('current_agent', 'NONE')}")
+            logger.info(f"Current response: '{final_state.get('current_response', 'EMPTY')}'")
+            logger.info(f"Routing history: {final_state.get('routing_history', [])}")
+
             response = final_state["current_response"]
 
-            logger.info("Message processing complete")
+            logger.info(f"=== RETURNING RESPONSE: {response[:100] if response else 'EMPTY'} ===")
+            logger.info("="*80)
             return response
 
         except Exception as e:
