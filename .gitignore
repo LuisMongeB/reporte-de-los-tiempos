@@ -9,3 +9,5 @@ tests
 
 *.log
 *.coverage
+
+*.md
