@@ -6,3 +6,6 @@
 temp*
 *.db
 tests
+
+*.log
+*.coverage
