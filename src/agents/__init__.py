@@ -41,7 +41,7 @@ AGENT_CONFIGS = [
         "agent_id": "notion_agent",
         "agent_class": NotionAgent,
         "prompt_file": "specialized/notion_agent.yaml",
-        "required_settings": ["notion_api_key", "notion_database_id"],
+        "required_settings": ["notion_api_key", "notion_default_parent_page_id"],
         "categories": ["storage", "integration"]
     },
 ]
